@@ -1,9 +1,14 @@
 import numpy.lib.stride_tricks
 import numpy as np
-from scipy.fft import rfftn, irfftn
 from numpy import ma
+from numpy.fft import rfftn, irfftn
 from tqdm import tqdm
 from openpiv.pyprocess import get_field_shape, find_first_peak
+
+try:
+    import cupy as xp
+except (ImportError, ModuleNotFoundError):
+    import numpy as xp
 
 """This module contains a pure python implementation of the basic
 cross-correlation algorithm for PIV image processing."""
@@ -213,7 +218,7 @@ def find_subpixel_peak_position(corr, subpixel_method="gaussian"):
 
         # gaussian fit
         if (
-            np.any(np.array([c, cl, cr, cd, cu, cf, cb]) < 0)
+            np.any(xp.array([c, cl, cr, cd, cu, cf, cb]) < 0)
             and subpixel_method == "gaussian"
         ):
             subpixel_method = "centroid"
@@ -261,7 +266,7 @@ def find_subpixel_peak_position(corr, subpixel_method="gaussian"):
     except IndexError:
         subp_peak_position = default_peak_position  # TODO: is this a good idea??
 
-    return np.array(subp_peak_position) - np.array(default_peak_position)
+    return xp.array(subp_peak_position) - xp.array(default_peak_position)
 
 
 def sig2noise_ratio(corr, sig2noise_method="peak2peak", width=2):
@@ -416,7 +421,15 @@ def normalize_intensity(window):
         the interrogation window array, with mean value equal to zero.
 
     """
-    return window - window.mean()
+    # window = window - window.mean()
+    # stddev = window.std()
+    # if stddev > 0:
+    #     window = window / stddev
+    window = window - window.mean()
+    norm = np.linalg.norm(window)
+    if norm > 0:
+        window = window / norm
+    return window
 
 
 def nextpower2(i):
@@ -438,10 +451,10 @@ def check_input(window_size, overlap, search_area_size, frame_a, frame_b):
         ws if x == 0 or x is None else x for x, ws in zip(search_area_size, window_size)
     ]
 
-    if any((np.array(window_size) - np.array(overlap)) <= 0):
+    if any((xp.array(window_size) - xp.array(overlap)) <= 0):
         raise ValueError("Overlap has to be smaller than the window_size")
 
-    if any((np.array(search_area_size) - np.array(window_size)) < 0):
+    if any((xp.array(search_area_size) - xp.array(window_size)) < 0):
         raise ValueError("Search size cannot be smaller than the window_size")
 
     if any([ws > ims for ws, ims in zip(window_size, frame_a.shape)]):
@@ -561,13 +574,13 @@ def extended_search_area_piv3D(
     # get field shape
     field_shape = get_field_shape(frame_a.shape, search_area_size, overlap)
 
-    u = np.zeros(field_shape)
-    v = np.zeros(field_shape)
-    w = np.zeros(field_shape)
+    u = xp.zeros(field_shape)
+    v = xp.zeros(field_shape)
+    w = xp.zeros(field_shape)
 
     # if we want sig2noise information, allocate memory
     if sig2noise_method is not None:
-        sig2noise = np.zeros(field_shape)
+        sig2noise = xp.zeros(field_shape)
 
     # shift for x and y coordinates of the search area windows so that the centers of search area windows have
     # the same distances to the image edge at all sides. For simplicity only shifts by integers are allowed
